@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Chart } from '$/lib/components';
+	import { ChatContainer } from '$/lib/components';
 </script>
 
 <svelte:head>
@@ -7,6 +7,6 @@
 	<meta name="description" content="Charts demo" />
 </svelte:head>
 
-<div class="w-full p-16">
-	<Chart />
+<div class="w-full">
+	<ChatContainer />
 </div>

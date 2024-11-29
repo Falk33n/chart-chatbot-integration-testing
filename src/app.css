@@ -75,4 +75,23 @@
 	body {
 		@apply bg-background text-foreground;
 	}
+
+	pre {
+		@apply rounded-xl bg-neutral-100 p-8;
+	}
+
+	.hljs {
+		span.hljs-punctuation {
+			@apply text-black;
+		}
+
+		span.hljs-attr,
+		span.hljs-number {
+			@apply text-yellow-600;
+		}
+
+		span.hljs-string {
+			@apply text-green-600;
+		}
+	}
 }
