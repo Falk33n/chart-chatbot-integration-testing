@@ -1,5 +1,6 @@
 <script lang="ts">
 	import axios from 'axios';
+
 	import type { IncomingDataType } from '../types';
 	import { isValidChartConfig } from '../utils/charts';
 	import Chart from './Chart.svelte';
@@ -73,7 +74,11 @@
 	} */
 
 	// Contains both embedded and chat specific functions
-	async function sendMessage(message: string, renderedMessage?: string) {
+	async function sendMessage(
+		message: string,
+		renderedMessage?: string,
+		filename?: string
+	) {
 		try {
 			disableInput = true;
 
@@ -97,6 +102,18 @@
 			// Reset states
 			inputValue = '';
 			chartConfig = null;
+
+			if (filename) {
+				const res: { data: { content: string } } = await axios.post(
+					'/api/chat',
+					{
+						queryNeo4j: filename
+					},
+					{ headers: { 'Content-Type': 'application/json' } }
+				);
+
+				console.log(res);
+			}
 
 			/* if (chatMode === 'embedded') {
 				const res: { data: number[] } = await axios.post(
@@ -169,6 +186,78 @@
 		}
 	}
 
+	type ChunkData = {
+		page: number;
+		startCharIndex: number;
+		endCharIndex: number;
+		charCount: number;
+		content: string;
+		filename: string;
+	};
+
+	function createChunks(
+		content: string,
+		chunkSize = 500,
+		overlap = chunkSize * 0.4, // 40% overlap
+		filename = ''
+	) {
+		const chars = content.split('');
+
+		const chunks: ChunkData[] = [];
+
+		const stepSize = chunkSize - overlap;
+
+		for (let i = 0, page = 1; i < chars.length; i += stepSize, page++) {
+			const chunkChars = chars.slice(i, i + chunkSize);
+			const chunkContent = chunkChars.join(' ');
+			const startCharIndex = i + 1;
+			const endCharIndex = Math.min(i + chunkSize, chars.length);
+
+			chunks.push({
+				page,
+				startCharIndex,
+				endCharIndex,
+				charCount: chunkChars.length,
+				content: chunkContent,
+				filename
+			});
+		}
+
+		return chunks;
+	}
+
+	async function createEmbedding(chunk: ChunkData) {
+		const res: { data: number[] } = await axios.post(
+			'/api/chat',
+			{
+				input: chunk.content
+			},
+			{ headers: { 'Content-Type': 'application/json' } }
+		);
+
+		return {
+			embeddings: res.data,
+			metadata: {
+				page: chunk.page,
+				startCharIndex: chunk.startCharIndex,
+				endCharIndex: chunk.endCharIndex,
+				charCount: chunk.charCount,
+				filename: chunk.filename
+			}
+		};
+	}
+
+	type EmbeddingWithMetadata = {
+		embeddings: number[];
+		metadata: {
+			page: number;
+			startCharIndex: number;
+			endCharIndex: number;
+			charCount: number;
+			filename: string;
+		};
+	};
+
 	async function handleFileInput(e: Event) {
 		const input = e.target as HTMLInputElement;
 		const file = input.files && input.files[0];
@@ -178,35 +267,66 @@
 			throw new Error(`No file selected`);
 		}
 
+		const reader = new FileReader();
+
+		reader.onload = async (e) => {
+			const fileContent = e.target?.result;
+			const chunks = createChunks(fileContent as string, 500, 50, file.name);
+
+			const results: EmbeddingWithMetadata[] = [];
+
+			for (const chunk of chunks) {
+				results.push(await createEmbedding(chunk));
+			}
+
+			const res = await axios.post(
+				'/api/chat',
+				{
+					saveNeo4j: results
+				},
+				{ headers: { 'Content-Type': 'application/json' } }
+			);
+
+			console.log(res.data);
+
+			console.log(results);
+		};
+
+		reader.onerror = (err) => {
+			throw new Error(`Error reading file: ${err}`);
+		};
+
+		reader.readAsText(file);
+
 		/* return new Promise<string>((resolve, reject) => { */
 		/* const reader = new FileReader(); */
 		/* 
-		reader.onload = async (e) => {
+  reader.onload = async (e) => {
 
-			}); */
+    }); */
 
 		/* try {
-				const csvData = reader.result as string;
-				 const parsedData = csvData.split('\n').map((row) => row.split(','));
-					const csvAsString = parsedData.map((row) => row.join(',')).join('\n');
-				 resolve(csvAsString); 
-			} catch (err) {
-				reject(new Error(`Error parsing CSV: ${err}`)); 
-			} */
+      const csvData = reader.result as string;
+       const parsedData = csvData.split('\n').map((row) => row.split(','));
+        const csvAsString = parsedData.map((row) => row.join(',')).join('\n');
+       resolve(csvAsString); 
+    } catch (err) {
+      reject(new Error(`Error parsing CSV: ${err}`)); 
+    } */
 
 		/* 			reader.readAsArrayBuffer(file);
-			sendMessage(pdfContent, 'Data sent from file...');
-		}; */
+    sendMessage(pdfContent, 'Data sent from file...');
+  }; */
 		/* 
-			reader.onerror = (err) => reject(new Error(`Error reading file: ${err}`));
-			reader.readAsText(file);
-		}) */ /* 
-			.then((csvString) => {
-				sendMessage(csvString, 'Data sent from file...');
-			})
-			.catch((error) => {
-				throw new Error(`Failed to read file: ${error}`);
-			}); */
+    reader.onerror = (err) => reject(new Error(`Error reading file: ${err}`));
+    reader.readAsText(file);
+  }) */ /* 
+    .then((csvString) => {
+      sendMessage(csvString, 'Data sent from file...');
+    })
+    .catch((error) => {
+      throw new Error(`Failed to read file: ${error}`);
+    }); */
 	}
 </script>
 
@@ -236,7 +356,7 @@
 	<form
 		onsubmit={async (e) => {
 			e.preventDefault();
-			await sendMessage(inputValue);
+			await sendMessage(inputValue, undefined, 'long_mock_file.txt');
 		}}
 		class="sticky bottom-0 z-[20] mt-auto flex items-center bg-white p-4 px-8"
 	>
@@ -249,7 +369,7 @@
 		/>
 		<input
 			type="file"
-			accept=".pdf"
+			accept=".txt"
 			class="ml-2 w-[100px]"
 			onchange={handleFileInput}
 			disabled={disableInput}
